@@ -1,0 +1,204 @@
+#include "pitches.h"
+
+const int X_pin   = A0;
+const int Y_pin   = A1;
+const int SW_pin  = 2;
+const int buzzer  = 8;
+
+enum EffectState { NONE, JUMP, FALL, STEP, COIN };
+EffectState currentEffect = NONE;
+
+// Mario theme arrays
+int melody[] = {
+  NOTE_E7, NOTE_E7, 0, NOTE_E7,
+  0, NOTE_C7, NOTE_E7, 0,
+  NOTE_G7, 0, 0, 0,
+  NOTE_G6, 0, 0, 0,
+
+  NOTE_C7, 0, 0, NOTE_G6,
+  0, 0, NOTE_E6, 0,
+  0, NOTE_A6, 0, NOTE_B5,
+  0, NOTE_AS6, NOTE_A6, 0,
+
+  NOTE_G6, NOTE_E7, NOTE_G7,
+  NOTE_A7, 0, NOTE_F7, NOTE_G7,
+  0, NOTE_E7, 0, NOTE_C7,
+  NOTE_D7, NOTE_B6, 0, 0,
+};
+
+int noteDuration[] = {
+  12, 12, 12, 12,
+  12, 12, 12, 12,
+  12, 12, 12, 12,
+  12, 12, 12, 12,
+
+  12, 12, 12, 12,
+  12, 12, 12, 12,
+  12, 12, 12, 12,
+  12, 12, 12, 12,
+
+  9, 9, 9,
+  12, 12, 12, 12,
+  12, 12, 12, 12,
+  12, 12, 12, 12,
+};
+
+int melodyLength              = sizeof(melody) / sizeof(melody[0]);
+int currentNote               = 0;
+unsigned long lastNoteTime    = 0;
+unsigned long noteDurationMs  = 0;
+unsigned long lastSend        = 0;
+
+void readJoystickAndSend();  // 🔹 Forward declaration (optional, but safe)
+
+void setup() {
+  pinMode(SW_pin, INPUT_PULLUP);
+  Serial.begin(115200);
+}
+
+void loop() {
+  unsigned long now = millis();
+  if (now - lastSend > 20) {
+    readJoystickAndSend();
+    lastSend = now;
+  }
+
+  if (Serial.available()) {
+  String cmd = Serial.readStringUntil('\n');
+  cmd.trim();
+  if (cmd == "COIN") {
+    playCoinSound();  // simple coin beep
+  } else if (cmd == "GAMEOVER") {
+    tone(buzzer, 200, 500);   // low tone for game over
+  }
+}
+
+  updateSoundEffects();
+}
+
+void updateSoundEffects() {
+  switch (currentEffect) {
+    case JUMP: playJumpSound(); break;
+    case FALL: playFallSound(); break;
+    case STEP: playStepSound(); break;
+    case COIN: playCoinSound(); break;        // NEW
+    case NONE: playThemeNonBlocking(); break;
+  }
+}
+
+// --- Non-blocking theme playback ---
+void playThemeNonBlocking() {
+  unsigned long now = millis();
+
+  if (now - lastNoteTime > noteDurationMs) {
+    noTone(buzzer);
+
+    int note = melody[currentNote];
+    int duration = 1000 / noteDuration[currentNote];
+    noteDurationMs = duration * 1.3;
+    lastNoteTime = now;
+
+    if (note > 0) {
+      tone(buzzer, note, duration);
+    }
+
+    currentNote++;
+    if (currentNote >= melodyLength) {
+      currentNote = 0; // Loop back
+    }
+  }
+}
+
+// --- Sound Effects ---
+void playJumpSound() {
+  static unsigned long lastTrigger = 0;
+  static int stage = 0;
+
+  if (millis() - lastTrigger > 100) {
+    if (stage == 0) tone(buzzer, NOTE_C6, 100);
+    else if (stage == 1) tone(buzzer, NOTE_G6, 100);
+    else {
+      noTone(buzzer);
+      stage = 0;
+      currentEffect = NONE;
+      return;
+    }
+    stage++;
+    lastTrigger = millis();
+  }
+}
+
+void playFallSound() {
+  static unsigned long lastTrigger = 0;
+  static int stage = 0;
+
+  if (millis() - lastTrigger > 100) {
+    if (stage == 0) tone(buzzer, NOTE_G4, 100);
+    else if (stage == 1) tone(buzzer, NOTE_C4, 100);
+    else {
+      noTone(buzzer);
+      stage = 0;
+      currentEffect = NONE;
+      return;
+    }
+    stage++;
+    lastTrigger = millis();
+  }
+}
+
+void playCoinSound() {
+  tone(buzzer, NOTE_B6, 100);
+  delay(100);
+  tone(buzzer, NOTE_E7, 200);
+  delay(200);
+  noTone(buzzer);
+  currentEffect = NONE;
+}
+
+void playStepSound() {
+  static unsigned long lastTrigger = 0;
+  static int stage = 0;
+
+  if (millis() - lastTrigger > 100) {
+    if (stage == 0) tone(buzzer, NOTE_E5, 80);
+    else if (stage == 1) tone(buzzer, NOTE_E5, 80);
+    else {
+      noTone(buzzer);
+      stage = 0;
+      currentEffect = NONE;
+      return;
+    }
+    stage++;
+    lastTrigger = millis();
+  }
+}  // ✅ this closing brace was missing earlier
+
+// --- Joystick Handling ---
+void readJoystickAndSend() {
+  int xValue = analogRead(X_pin);
+  int yValue = analogRead(Y_pin);
+
+  if (currentEffect != NONE) return;  // Wait until sound finishes
+
+  // Dead zone
+  if (abs(xValue - 512) < 100 && abs(yValue - 512) < 100) {
+    Serial.println("REST");
+    return;
+  }
+
+  if (yValue < 300) {
+    Serial.println("UP");
+    currentEffect = JUMP;
+  } else if (yValue > 600) {
+    Serial.println("DOWN");
+    currentEffect = FALL;
+  } else if (xValue > 600) {
+    Serial.println("RIGHT");
+    currentEffect = STEP;
+  } else if (xValue < 400) {
+    Serial.println("LEFT");
+    currentEffect = STEP;
+  } else {
+    Serial.println("REST");
+  }
+}
