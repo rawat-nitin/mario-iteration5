@@ -52,5 +52,4 @@ This is a fun project which includes Arduino + JoyStick + Processing IDE.
 
 ---
 
-Would you like me to also include a **simple diagram** (schematic-style) for the same connections?
 
